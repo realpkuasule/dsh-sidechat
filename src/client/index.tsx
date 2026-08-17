@@ -996,6 +996,44 @@ function SidechatPanel(props: {
     })
   }, [panel.parentSessionId, panel.lookup, panel.attachments, props.store])
 
+  /**
+   * The persistent launcher: open the panel, then reuse an existing side chat
+   * (the most recent one) or create a fresh one when the conversation has none.
+   */
+  const openLauncher = useCallback(() => {
+    props.store.openPanel(panel.parentSessionId)
+    setCollapsed(false)
+    void (async () => {
+      const listResult = await api.list({ parentSessionId: panel.parentSessionId })
+      if (!listResult.ok) return
+      const items = listResult.value.items
+      props.store.patch({ items })
+      if (items.length > 0) {
+        const snap = props.store.getSnapshot().panel
+        const first = items[0]
+        if (snap.activeChildId === null && first !== undefined) {
+          props.store.setActive(first.childId)
+          void refreshHistory(props.store, first.childId)
+        }
+        return
+      }
+      const startResult = await api.start({ parentSessionId: panel.parentSessionId, content: [], lookupEnabled: panel.lookup })
+      if (startResult.ok) {
+        props.store.setActive(startResult.value.childId)
+        props.store.patch({
+          provider: startResult.value.provider,
+          model: startResult.value.model,
+          effort: startResult.value.reasoningEffort ?? '',
+        })
+        void refreshList(props.store, panel.parentSessionId)
+        void refreshDirectory(props.store)
+        textareaRef.current?.focus()
+      } else {
+        props.store.patch({ error: startResult.error.message })
+      }
+    })()
+  }, [panel.parentSessionId, panel.lookup, props.store])
+
   /** Assemble one question + all its options into a prompt. */
   const buildAllText = (q: SideQuestionItem): string => {
     const lines: string[] = []
@@ -1334,7 +1372,15 @@ function SidechatPanel(props: {
     if (mainQuestion !== null) {
       return <QuestionFab store={props.store} t={props.t} onOpen={openQuestionPanel} />
     }
-    return null
+    // Persistent launcher: a floating edge button that opens the panel and
+    // creates a fresh side chat when the conversation has none yet.
+    return (
+      <Tooltip label={props.t('panel.open')} side="bottom">
+        <button type="button" className={css.collapsedHandle} onClick={openLauncher}>
+          <IconNewChatOutline16 size={16} />
+        </button>
+      </Tooltip>
+    )
   }
 
   if (collapsed) {
