@@ -11,14 +11,52 @@
  */
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
-import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import { SettingsConflictError, settingsNamespace, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
+import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import z from 'schemastery'
 import type { Context, SideAgent, SideAgentHandle, SideImageAttachmentRef, SideSession, SideSessionEvent } from './context-types.ts'
 import { SUBCHAT_PREFS_DEFAULTS, SUBCHAT_PREFS_NS, type SubchatPrefs } from './settings-shared.ts'
 import { isTrustedApiRequest } from './trust-fence.ts'
 import { optionalBoolean, readJsonBody, requireString, SidechatError, writeError, writeJson, writeOk } from './wire.ts'
+
+/**
+ * Self-contained replacements for two tiny @deepseek-ai/dsh-home-paths /
+ * @deepseek-ai/dsh-settings helpers, inlined so the host bundle has NO
+ * module-scope @deepseek-ai import: profiles with `autoInstallPeers: false`
+ * never install peer dependencies, and a tarball/git install would then fail
+ * to resolve them. The implementations mirror the upstream behavior exactly
+ * (DSH_HOME env override, `~` expansion, namespace validation).
+ */
+
+/** Resolve the DeepSeek Harness home (mirror of dsh-home-paths resolveDshHome). */
+function resolveDshHome(): string {
+  const configured = process.env.DSH_HOME
+  const fromEnv = configured !== undefined && configured.trim().length > 0 ? configured : undefined
+  let home = fromEnv ?? join(homedir(), '.dsh')
+  if (home === '~') home = homedir()
+  else if (home.startsWith('~/') || home.startsWith('~\\')) home = join(homedir(), home.slice(2))
+  return resolve(home)
+}
+
+/** Join path segments onto the harness home (mirror of dshHomePath). */
+function dshHomePath(...segments: string[]): string {
+  return join(resolveDshHome(), ...segments)
+}
+
+/** Settings-namespace validation (mirror of settingsNamespace). */
+const NAMESPACE_PATTERN = /^[a-z][a-z0-9-]*$/
+
+function settingsNamespace(value: string): string {
+  if (!NAMESPACE_PATTERN.test(value)) {
+    throw new TypeError(`settings namespace "${value}" must match ${String(NAMESPACE_PATTERN)}`)
+  }
+  return value
+}
+
+/** Whether an error is a settings revision conflict (duck-typed across instances). */
+function isSettingsConflict(error: unknown): boolean {
+  return error instanceof Error && (error as { code?: unknown }).code === 'SETTINGS_CONFLICT'
+}
 
 /** Plugin identity for cordis.yml rows. */
 export const name = 'dsh-sidechat'
@@ -716,8 +754,8 @@ function buildApi(ctx: Context, sideChats: Map<string, SidechatRecord>, getSetti
       try {
         return await settings.update(patch as Record<string, unknown>, expectedRevision)
       } catch (error) {
-        if (error instanceof SettingsConflictError) {
-          throw new SidechatError('settings-conflict', error.message, 409)
+        if (isSettingsConflict(error)) {
+          throw new SidechatError('settings-conflict', error instanceof Error ? error.message : String(error), 409)
         }
         throw new SidechatError('settings-rejected', error instanceof Error ? error.message : String(error), 400)
       }
@@ -746,7 +784,7 @@ export function apply(ctx: Context): void {
   // The client reads/writes it through the plugin's own fenced routes, since
   // the DSH settings RPC domain only serves allowlisted namespaces.
   ctx.inject(['settings'], (sctx: Context) => {
-    const ns: SettingsNamespace = settingsNamespace(SUBCHAT_PREFS_NS)
+    const ns: string = settingsNamespace(SUBCHAT_PREFS_NS)
     const scope = sctx.settings.register(ns, PrefsSchema) as {
       get(): SubchatPrefs
       watch(cb: (next: SubchatPrefs, prev: SubchatPrefs) => void): () => void
