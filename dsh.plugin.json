@@ -1,6 +1,6 @@
 {
   "id": "dsh-external/dsh-sidechat",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "main": "./lib/index.js",
   "description": "选中内容注入侧聊输入框（默认不发送）、一键新建侧聊、按主会话隔离的隐藏会话、继承模型/思考难度/权限（可调）、可带回主会话。",
   "engines": {

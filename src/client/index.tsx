@@ -711,7 +711,15 @@ function SelectionMenu(props: { store: SidechatStore; t: (key: SidechatLocaleKey
   if (local === null || current === undefined) return null
   const hasActive = panel.activeChildId !== null
   return (
-    <div className={css.selectionMenu} style={{ left: local.x, top: local.y - 46 }}>
+    <div
+      className={css.selectionMenu}
+      style={{ left: local.x, top: local.y - 46 }}
+      // preventDefault on mousedown keeps the current text selection alive:
+      // without it the browser collapses the selection on press, the
+      // selectionchange handler unmounts this menu, and the button click
+      // never lands — the menu would flicker away whenever you try to click.
+      onMouseDown={(e) => { e.preventDefault() }}
+    >
       <button type="button" className={css.selectionButton} onClick={start}>{props.t('ask.new')}</button>
       {hasActive && <button type="button" className={css.selectionButton} onClick={continueChat}>{props.t('ask.continue')}</button>}
     </div>
@@ -783,7 +791,15 @@ function BringBackMenu(props: {
   }
 
   return (
-    <div className={css.selectionMenu} style={{ left: local.x, top: local.y - 46 }}>
+    <div
+      className={css.selectionMenu}
+      style={{ left: local.x, top: local.y - 46 }}
+      // preventDefault on mousedown keeps the current text selection alive:
+      // without it the browser collapses the selection on press, the
+      // selectionchange handler unmounts this menu, and the button click
+      // never lands — the menu would flicker away whenever you try to click.
+      onMouseDown={(e) => { e.preventDefault() }}
+    >
       <button
         type="button"
         className={css.selectionButton}
